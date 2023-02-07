@@ -1,45 +1,54 @@
 package com.polarbookshop.dispatcherservice;
 
-import java.io.IOException;
+import java.util.function.Function;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
+import reactor.test.StepVerifier;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.cloud.stream.binder.test.InputDestination;
-import org.springframework.cloud.stream.binder.test.OutputDestination;
-import org.springframework.cloud.stream.binder.test.TestChannelBinderConfiguration;
-import org.springframework.context.annotation.Import;
-import org.springframework.integration.support.MessageBuilder;
-import org.springframework.messaging.Message;
+import org.springframework.cloud.function.context.FunctionCatalog;
+import org.springframework.cloud.function.context.test.FunctionalSpringBootTest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
-@Import(TestChannelBinderConfiguration.class)
+@FunctionalSpringBootTest
+@Disabled("These tests are only necessary when using the functions alone (no bindings)")
 public class DispatchingFunctionsIntegrationTests {
+	
 	@Autowired
-	private InputDestination input;
-
-	@Autowired
-	private OutputDestination output;
-
-	@Autowired
-	private ObjectMapper objectMapper;
+	private FunctionCatalog catalog;
 
 	@Test
-	void whenOrderAcceptedThenDispatched() throws IOException {
+	void packOrder() {
+		Function<OrderAcceptedMessage, Long> pack = catalog.lookup(Function.class, "pack");
+		long orderId = 121;
+		assertThat(pack.apply(new OrderAcceptedMessage(orderId))).isEqualTo(orderId);
+	}
+	
+	@Test
+	void labelOrder() {
+		Function<Flux<Long>, Flux<OrderDispatchedMessage>> label = catalog.lookup(Function.class, "label");
+		Flux<Long> orderId = Flux.just(121L);
+		
+		StepVerifier.create(label.apply(orderId))
+			.expectNextMatches(dispatchedOrder -> 
+				dispatchedOrder.equals(new OrderDispatchedMessage(121L)))
+			.verifyComplete();
+	}
+	
+	@Test
+	void packAndLabelOrder() {
+		Function<OrderAcceptedMessage, Flux<OrderDispatchedMessage>> packAndLabel 
+			= catalog.lookup(Function.class, "pack|label");
 		long orderId = 121;
 		
-		Message<OrderAcceptedMessage> inputMessage 
-			= MessageBuilder.withPayload(new OrderAcceptedMessage(orderId)).build();
-		Message<OrderDispatchedMessage> expectedOutputMessage 
-			= MessageBuilder.withPayload(new OrderDispatchedMessage(orderId)).build();
-		
-		this.input.send(inputMessage);
-		assertThat(objectMapper.readValue(output.receive().getPayload(), OrderDispatchedMessage.class))
-			.isEqualTo(expectedOutputMessage.getPayload());
+		StepVerifier.create(packAndLabel.apply(new OrderAcceptedMessage(orderId)))
+			.expectNextMatches(dispatchedOrder -> 
+				dispatchedOrder.equals(new OrderDispatchedMessage(121L)))
+			.verifyComplete();
 	}
-
+	
+	
 }
