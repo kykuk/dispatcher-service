@@ -45,6 +45,5 @@ spec:
               mountPath: /workspace/config
       volumes:
         - name: dispatcher-config-volume
-          config-map:
+          configMap:
             name: dispatcher-config
-              
